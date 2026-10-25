@@ -3,9 +3,9 @@ erro() {
     echo "Erro: $1" >&2
     echo "Uso: ./vp [{-p <dir1> [<dir2>...] | -v}] [-f <ficheiro>] [-e <padrao>] [-s]" >&2
     echo "  -p : Protege e guarda informação acerca de um ou mais diretórios" >&2
-    echo "  -v : Percorre os ficheiros nos diretórios protegidos e determina se existiram modificações desde a criação da base de dados de proteção" >&2
-    echo "  -f : Especifica o ficheiro que irá guardar a base de dados" >&2
-    echo "  -e : Exclui os ficheiros especificados da verificação e proteção" >&2
+    echo "  -v : Verifica alterações em ficheiros desde que foram protegidos" >&2
+    echo "  -f : indicação do nome do ficheiro onde a base de dados será guardada \n (Por defeito será temp/.pdb)" >&2
+    echo "  -e : Permite a exclusão de ficheiros voláteis (ex. *.temp, *.log, /tmp/*) da proteção e verificação" >&2
     echo "  -s : Emite alertas de alta prioridade para o sistema de logging usando o logger" >&2
     exit 1
 }
