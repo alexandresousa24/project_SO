@@ -1,77 +1,86 @@
 #!/bin/bash
+#Formato da base de dados caminho;dono;grupo;tamanho;permissões;data;SHA-256
 
-# Função para comparar os atributos de um ficheiro antigo com os atuais
+BD="base_exemplo.txt"
+
+# Lê a base de dados e imprime os valores
+ler_base() {
+    while IFS=";" read -r caminho dono grupo tamanho perm data sha; do       
+        [[ "$dono" =~ ^# ]] && continue    # ignora linhas de comentário
+        [ -z "$dono" ] && continue         # ignora linhas vazias
+
+        echo "Ficheiro:   $caminho"
+        echo "  Dono:       $dono"
+        echo "  Grupo:      $grupo"
+        echo "  Tamanho:    $tamanho"
+        echo "  Permissões: $perm"
+        echo "  Data:       $data"
+        echo "  SHA-256:    $sha"
+    done < "$BD"
+}
+
+# Compara os valores antigos com os atuais e diz o que mudou
 comparar_ficheiro() {
-    local antigo_dono="$1" local atual_dono="$2"
-    local antigo_tam="$3"  local atual_tam="$4"
-    local antigo_perm="$5" local atual_perm="$6"
-    local antigo_data="$7" local atual_data="$8"
-    local antigo_sha="$9"  local atual_sha="${10}"
-
     local mudou=0
 
-    if [ "$antigo_dono" != "$atual_dono" ]; then
-        echo "  -> Alterações: Dono alterado (antigo: $antigo_dono -> atual: $atual_dono)"
+    if [ "$dono" != "$atual_dono" ]; then
+        echo "  Dono: $dono -> $atual_dono"
         mudou=1
     fi
 
-    if [ "$antigo_tam" != "$atual_tam" ]; then
-        echo "  -> Alterações: Tamanho alterado (antigo: $antigo_tam -> atual: $atual_tam)"
+    if [ "$grupo" != "$atual_grupo" ]; then
+        echo "  Grupo: $grupo -> $atual_grupo"
         mudou=1
     fi
 
-    if [ "$antigo_perm" != "$atual_perm" ]; then
-        echo "  -> Alterações: Permissões alteradas (antigas: $antigo_perm -> atuais: $atual_perm)"
+    if [ "$tamanho" != "$atual_tam" ]; then
+        echo "  Tamanho: $tamanho -> $atual_tam"
         mudou=1
     fi
 
-    if [ "$antigo_data" != "$atual_data" ]; then
-        echo "  -> Alterações: Data de modificação alterada"
+    if [ "$perm" != "$atual_perm" ]; then
+        echo "  Permissões: $perm -> $atual_perm"
         mudou=1
     fi
 
-    if [ "$antigo_sha" != "$atual_sha" ]; then
-        echo "  -> Alterações: Conteúdo alterado (SHA-256 diferente)"
+    if [ "$data" != "$atual_data" ]; then
+        echo "  Data de modificação: $data -> $atual_data"
+        mudou=1
+    fi
+
+    if [ "$sha" != "$atual_sha" ]; then
+        echo "  Conteúdo: SHA-256 diferente"
         mudou=1
     fi
 
     if [ "$mudou" -eq 0 ]; then
-        echo "  -> Nada mudou neste ficheiro."
+        echo "  Nada mudou."
     fi
 }
 
-# Leitura da base de dados
-# Substituir 'testes_vp/base_exemplo.txt' pelo caminho real BD no projeto
-BD="testes_vp/base_exemplo.txt"
+# Testa a comparação com valores inventados
+testar_comparacao() {
+    # Valores antigos
+    dono="ana"; grupo="ana"; tamanho=10; perm=644; data=1700000000; sha="aaa"
 
+    echo "Teste 1: tudo igual"
+    atual_dono="ana"; atual_grupo="ana"; atual_tam=10
+    atual_perm=644; atual_data=1700000000; atual_sha="aaa"
+    comparar_ficheiro
+
+    echo "Teste 2: dono, permissões e conteúdo diferentes"
+    atual_dono="bob"; atual_perm=600; atual_sha="bbb"
+    comparar_ficheiro
+}
+
+# ---- Testes da Fase 1 ----
 if [ ! -f "$BD" ]; then
-    echo "Erro: Base de dados $BD não encontrada!"
+    echo "Erro: base de dados $BD não encontrada!" >&2
     exit 1
 fi
 
-echo "A processar a base de dados: $BD"
+echo "=== Leitura da base de dados ==="
+ler_base
 echo ""
-
-while IFS=";" read -r caminho dono grupo tamanho perm data sha; do
-    # Ignora linhas que começam com #
-    [[ "$caminho" =~ ^# ]] && continue
-
-    echo "A verificar o ficheiro: $caminho"
-
-    # Verifica se o ficheiro existe
-    if [ ! -e "$caminho" ]; then
-        echo "  -> ALERTA: O ficheiro foi apagado do disco!"
-        continue
-    fi
-
-    # Recolher os atributos atuais do ficheiro
-    atual_dono=$(stat -c "%U" "$caminho")
-    atual_grupo=$(stat -c "%G" "$caminho")
-    atual_tam=$(stat -c "%s" "$caminho")
-    atual_perm=$(stat -c "%a" "$caminho")
-    atual_data=$(stat -c "%Y" "$caminho")
-    atual_sha=$(sha256sum "$caminho" | awk '{print $1}')
-
-    comparar_ficheiro "$dono" "$atual_dono" "$tamanho" "$atual_tam" "$perm" "$atual_perm" "$data" "$atual_data" "$sha" "$atual_sha"
-
-done < "$BD"
+echo "=== Comparação ==="
+testar_comparacao

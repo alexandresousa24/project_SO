@@ -1,0 +1,5 @@
+#caminho;dono;grupo;tamanho;permissões;data;SHA-256
+testes_vp/teste 2.txt;vascosilva;vascosilva;3;644;1792881599;f21d8a4f1f93e8abd047bc92fc4f36be7a1a17da212c3833480466db2f192e6e
+testes_vp/a.txt;vascosilva;vascosilva;10;644;1792881599;162a4daa4ca98321bcd6ef19865f76d5e7c16a6bb48f8f7f4ce56528675d23b1
+testes_vp/b.txt;vascosilva;vascosilva;10;600;1792881600;384755246f34e1bd8c5b0a5b0a2a8a0bb6f2e0d0b0a5b6c6e5d0e8f4a1b2c3d4
+testes_vp/sub/meu ficheiro.txt;vascosilva;vascosilva;37;755;1792881601;e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
