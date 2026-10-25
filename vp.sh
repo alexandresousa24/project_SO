@@ -10,6 +10,21 @@ erro() {
     exit 1
 }
 
+# Recebe o caminho de UM ficheiro em $1 e imprime uma linha com a sua informação
+info_ficheiro() {
+    local ficheiro="$1"
+    local meta hash
+
+    # 1. Metadados com o stat: dono, grupo, tamanho, permissões (octal), data de modificação
+    meta=$(stat --format="%U;%G;%s;%a;%Y" "$ficheiro")
+
+    # 2. Hash com o sha256sum: só o hash, sem o nome do ficheiro
+    hash=$(sha256sum "$ficheiro" | cut -d' ' -f1)
+
+    # 3. Imprimir tudo numa linha, com o separador que combinaram no contrato da base de dados
+    echo "$ficheiro;$meta;$hash"
+}
+
 modo_p=0
 modo_v=0
 modo_s=0
@@ -56,3 +71,4 @@ echo "pastas (${#pastas[@]}):"
 for pasta in "${pastas[@]}"; do
     echo "  $pasta"
 done
+
