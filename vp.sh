@@ -6,8 +6,8 @@ BD="base_exemplo.txt"
 # Lê a base de dados e imprime os valores
 ler_base() {
     while IFS=";" read -r caminho dono grupo tamanho perm data sha; do       
-        [[ "$dono" =~ ^# ]] && continue    # ignora linhas de comentário
-        [ -z "$dono" ] && continue         # ignora linhas vazias
+        [[ "$caminho" =~ ^# ]] && continue    # testa se o caminho começa com #
+        [ -z "$caminho" ] && continue         # ignora linhas vazias
 
         echo "Ficheiro:   $caminho"
         echo "  Dono:       $dono"
@@ -73,14 +73,68 @@ testar_comparacao() {
     comparar_ficheiro
 }
 
-# ---- Testes da Fase 1 ----
 if [ ! -f "$BD" ]; then
     echo "Erro: base de dados $BD não encontrada!" >&2
     exit 1
 fi
 
-echo "=== Leitura da base de dados ==="
+echo "-> Leitura da base de dados <-"
 ler_base
 echo ""
-echo "=== Comparação ==="
+echo "-> Comparação <-"
 testar_comparacao
+
+# Função principal para verificar a bd e os ficheiros
+verificar_pasta() {
+    local bd_ficheiro="${1:-$BD}" # Se não for fornecido, usa a base de dados padrão
+
+    # Verifica se a base de dados existe
+    if [ ! -f "$bd_ficheiro" ]; then
+        echo "Erro: Base de dados '$bd_ficheiro' não encontrada!" >&2
+        echo "Uso correto: ./vp [-v] [-f base_de_dados] [-s]" >&2
+        exit 1
+    fi
+
+    echo "A iniciar a verificação com base em: $bd_ficheiro"
+    echo "-------------------------------------------------"
+    
+    # Inicializar contadores para o resumo final
+    local total_verificados=0
+    local total_modificados=0
+    local total_apagados=0
+
+    # Ler a base de dados linha a linha
+    while IFS=";" read -r caminho dono grupo tamanho perm data sha; do
+        # Ignorar linhas de comentário ou vazias
+        [[ "$caminho" =~ ^# ]] && continue
+        [ -z "$caminho" ] && continue
+
+        total_verificados=$((total_verificados + 1))
+
+        # Verificar se o ficheiro foi apagado
+        if [ ! -f "$caminho" ]; then
+            echo "Ficheiro APAGADO: $caminho"
+            total_apagados=$((total_apagados + 1))
+            echo "-------------------------------------------------"
+            continue # Passa logo para a próxima linha
+        fi
+
+        # Obter os valores atuais do ficheiro
+        atual_dono=$(stat -c '%U' "$caminho")
+        atual_grupo=$(stat -c '%G' "$caminho")
+        atual_tam=$(stat -c '%s' "$caminho")
+        atual_perm=$(stat -c '%a' "$caminho")
+        atual_data=$(stat -c '%Y' "$caminho")
+        atual_sha=$(sha256sum "$caminho" | cut -d' ' -f1)
+
+        echo "A verificar ficheiro: $caminho"
+        
+        # Comparar usando a tua função de comparação existente
+        comparar_ficheiro
+        echo "-------------------------------------------------"
+
+    done < "$bd_ficheiro"
+
+    echo "Verificação concluída."
+    echo "Total verificados: $total_verificados | Apagados: $total_apagados"
+}
