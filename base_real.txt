@@ -1,0 +1,6 @@
+#PASTAS;/home/vascosilva/SO/projeto01/project_SO/testes_vp
+/home/vascosilva/SO/projeto01/project_SO/testes_vp/subpasta/teste.md;vascosilva;vascosilva;33;644;1792880234;b3e3641f4d086b60c38a76a2290ccdf6de43c8e1bb9e741936e327a18efd0af8
+/home/vascosilva/SO/projeto01/project_SO/testes_vp/teste .md;vascosilva;vascosilva;40;644;1792880234;ea53a3a10eb01777a5620d834cf50954df020a20c3b4b95bf3a054ea7324ee90
+/home/vascosilva/SO/projeto01/project_SO/testes_vp/privado.png;vascosilva;vascosilva;335570;644;1792880234;3137b094377686baff2cd64c059c4c6f8b6246574bd1669ad1c529fd9ba0856d
+/home/vascosilva/SO/projeto01/project_SO/testes_vp/teste 2.txt;vascosilva;vascosilva;3;644;1792881599;f21d8a4f1f93e8abd047bc92fc4f36be7a1a17da212c3833480466db2f192e6e
+/home/vascosilva/SO/projeto01/project_SO/testes_vp/HelloWorld.py;vascosilva;vascosilva;21;644;1792880234;866b5033009e3e3f3e40bef180e6924d937996a57fc8b5ce85090b5d14459f1f
