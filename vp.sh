@@ -1,32 +1,143 @@
 #!/bin/bash
-# Formato da BD:
-# #PASTAS;/pasta1;/pasta2         
+
+# Formato da base de dados (BD), separador ';':
+# #PASTAS;/pasta1;/pasta2
+# #EXCLUIR;padrao
 # caminho;dono;grupo;tamanho;permissões;data;SHA-256
 
-export LC_ALL=C   # garante que o sort e comm têm a mesma ordem
+export LC_ALL=C   # garante que o sort e o comm usam a mesma ordem
 
-BD="base_real.txt"   # TEMPORÁRIO para testes; no vp final vem do -f
-EXCLUIR=""           # -e
-ALERTAS=0            # -s
-PASTAS=()            # preenchido a partir da BD
+BD="/tmp/.pdb"     # -f
+EXCLUIR=""         # -e
+ALERTAS=0          # -s
+PASTAS=()          # preenchido a partir da BD
+MODO_P=0
+MODO_V=0
 
 TOTAL_VERIFICADOS=0
 TOTAL_MODIFICADOS=0
 TOTAL_APAGADOS=0
 TOTAL_NOVOS=0
 
-# Placeholder para testes isolados: a verdadeira `ajuda` é do Alexandre
-ajuda() { echo "Uso: ./vp [-p pasta...] [-v] [-f bd] [-e padrao] [-s]" >&2; }
+# Ajuda e erros
+ajuda() {
+    echo "Uso: ./vp [{-p <dir1> [<dir2>...] | -v}] [-f <ficheiro>] [-e <padrao>] [-s]" >&2
+    echo "  -p : Protege e guarda informação acerca de um ou mais diretórios" >&2
+    echo "  -v : Verifica alterações em ficheiros desde que foram protegidos" >&2
+    echo "       (é o modo por defeito: sem -p nem -v o programa verifica)" >&2
+    echo "  -f : indicação do nome do ficheiro onde a base de dados será guardada" >&2
+    echo "       (por defeito será /tmp/.pdb)" >&2
+    echo "  -e : Permite a exclusão de ficheiros voláteis (ex. *.temp, *.log, /tmp/*)" >&2
+    echo "       da proteção e verificação. O padrão é comparado com o nome do" >&2
+    echo "       ficheiro e com o caminho completo. Usar sempre com aspas." >&2
+    echo "  -s : Emite alertas de alta prioridade para o sistema de logging usando o logger" >&2
+}
 
-# 1 Comparação
-# Escreve uma linha só se o valor antigo for diferente do atual
+# erro imprime a mensagem
+erro() {
+    echo "Erro: $1" >&2
+    ajuda
+    exit 1
+}
+
+# Leitura e validação de argumentos
+processar_argumentos() {
+    local flag
+    while (( $# > 0 )); do
+        OPTIND=1
+        while getopts ":pve:f:s" flag; do
+            case "${flag}" in
+                p) MODO_P=1 ;;
+                v) MODO_V=1 ;;
+                e) EXCLUIR="$OPTARG" ;;
+                f) BD="$OPTARG" ;;
+                s) ALERTAS=1 ;;
+                :) erro "A opção -$OPTARG precisa de argumento" ;;
+                \?) erro "Opção Inválida: a flag -$OPTARG não existe" ;;
+            esac
+        done
+        shift $((OPTIND - 1))
+
+        if (( $# > 0 )); then
+            PASTAS+=("$1")
+            shift
+        fi
+    done
+}
+
+validar_argumentos() {
+    if (( MODO_P && MODO_V )); then
+        erro "As opções -p e -v não podem ser usadas em simultâneo"
+    fi
+    if (( MODO_P && ${#PASTAS[@]} == 0 )); then
+        erro "A opção -p precisa de pelo menos uma pasta"
+    fi
+    if (( !MODO_P && ${#PASTAS[@]} > 0 )); then
+        erro "Foram indicadas pastas sem a opção -p"
+    fi
+}
+
+#  Modo -p proteger
+info_ficheiro() {
+    local ficheiro="$1"
+    local meta hash
+
+    meta=$(stat --format="%U;%G;%s;%a;%Y" "$ficheiro")
+
+    hash=$(sha256sum < "$ficheiro" | cut -d' ' -f1)
+
+    echo "$ficheiro;$meta;$hash"
+}
+
+# Lista os ficheiros de uma pasta e subpastas
+listar_ficheiros() {
+    if [ -n "$EXCLUIR" ]; then
+        find "$1" -type f ! -path "$BD" ! \( -name "$EXCLUIR" -o -path "$EXCLUIR" \)
+    else
+        find "$1" -type f ! -path "$BD"
+    fi
+}
+
+proteger() {
+    local pasta lista f
+    local n=0
+    local absolutas=()
+
+    # Valida e guarda todas as pastas antes de mexer na BD antiga
+    for pasta in "${PASTAS[@]}"; do
+        [ -d "$pasta" ] || erro "A pasta '$pasta' não existe"
+        absolutas+=("$(readlink -f "$pasta")")
+    done
+    PASTAS=("${absolutas[@]}")
+
+    # Se a BD já existe apaga-se para a poder recriar
+    rm -f "$BD"
+    lista=$(IFS=';'; echo "${PASTAS[*]}")
+    echo "#PASTAS;$lista" > "$BD" || erro "Não foi possível criar a base de dados '$BD'"
+    echo "#EXCLUIR;$EXCLUIR" >> "$BD"
+
+    for pasta in "${PASTAS[@]}"; do
+        echo "a proteger a pasta: $pasta"
+
+        while IFS= read -r f; do
+            info_ficheiro "$f"
+            n=$((n+1))
+        done < <(listar_ficheiros "$pasta") >> "$BD"
+    done
+
+    chmod 444 "$BD"
+    echo "Base de dados de proteção $BD criada com sucesso."
+    echo "Ficheiros processados: $n | Diretórios protegidos: ${PASTAS[*]}"
+}
+
+# Modo -v verificar
 comparar_campo() {
     if [ "$2" != "$3" ]; then
         echo "  $1: $2 -> $3"
     fi
 }
 
-# Recebe 6 valores antigos e 6 atuais, pela mesma ordem e escreve só o que mudou.
+# escreve só o que mudou.
 comparar_ficheiro() {
     comparar_campo "Dono"                "$1" "$7"
     comparar_campo "Grupo"               "$2" "$8"
@@ -38,7 +149,6 @@ comparar_ficheiro() {
     fi
 }
 
-# 2 Alertas
 # Mostra o alerta no ecrã e, com -s, também no registo do sistema
 alertar() {
     echo "$1"
@@ -48,8 +158,7 @@ alertar() {
     fi
 }
 
-# 3 Apagados e Modificados
-# Preenche as variáveis atual_* com os valores do ficheiro no disco
+# Apagados e modificados
 obter_estado_atual() {
     atual_dono=$(stat -c '%U' "$1")
     atual_grupo=$(stat -c '%G' "$1")
@@ -59,12 +168,13 @@ obter_estado_atual() {
     atual_sha=$(sha256sum < "$1" | cut -d' ' -f1)
 }
 
-# Verdadeiro se o nome do ficheiro for igual ao do -e
+
 esta_excluido() {
-    [ -n "$EXCLUIR" ] && [[ "$(basename "$1")" == $EXCLUIR ]]
+    # Verifica se o ficheiro está excluído pelo padrão -e
+    [ -n "$EXCLUIR" ] && { [[ "$(basename "$1")" == $EXCLUIR ]] || [[ "$1" == $EXCLUIR ]]; }
 }
 
-# Verificação de existentes
+# Verificação dos ficheiros que estão na BD
 verificar_existentes() {
     local caminho dono grupo tamanho perm data sha detalhes
     while IFS=";" read -r caminho dono grupo tamanho perm data sha; do
@@ -72,12 +182,12 @@ verificar_existentes() {
         [ -z "$caminho" ] && continue                   # ignora linhas vazias
         esta_excluido "$caminho" && continue            # ignora ficheiros que batem com o padrão de exclusão
 
-        TOTAL_VERIFICADOS=$((TOTAL_VERIFICADOS + 1))    
+        TOTAL_VERIFICADOS=$((TOTAL_VERIFICADOS + 1))
 
-        if [ ! -f "$caminho" ]; then                    
+        if [ ! -f "$caminho" ]; then
             alertar "APAGADO: $caminho"
             TOTAL_APAGADOS=$((TOTAL_APAGADOS + 1))
-            continue 
+            continue
         fi
 
         obter_estado_atual "$caminho"
@@ -90,8 +200,8 @@ verificar_existentes() {
     done < "$BD"
 }
 
-# 4 Novos
-# Lê o cabeçalho da BD e preenche a variável PASTAS com as pastas protegidas.
+# Novos
+# Lê o cabeçalho da BD e preenche PASTAS com as pastas protegidas. O -e tem prioridade
 ler_cabecalho_bd() {
     local campos
     while IFS=";" read -r -a campos; do
@@ -101,18 +211,7 @@ ler_cabecalho_bd() {
         esac
     done < "$BD"
     if [ "${#PASTAS[@]}" -eq 0 ]; then
-        echo "Erro: a base de dados '$BD' não tem pastas protegidas (linha #PASTAS;...)." >&2
-        ajuda
-        exit 1
-    fi
-}
-
-# ----------------------------------- Deve ser a MESMA função que o -p do Alexandre usa
-listar_ficheiros() {
-    if [ -n "$EXCLUIR" ]; then
-        find "$1" -type f -not -name "$EXCLUIR"
-    else
-        find "$1" -type f
+        erro "a base de dados '$BD' não tem pastas protegidas (linha #PASTAS;...)."
     fi
 }
 
@@ -127,7 +226,7 @@ caminhos_atuais() {
     done | sort
 }
 
-# Verifica se existem ficheiros novos que não estão na BD e alerta para eles.
+# Ficheiros que existem agora e não estão na BD
 verificar_novos() {
     local caminho
     while IFS= read -r caminho; do
@@ -136,12 +235,10 @@ verificar_novos() {
     done < <(comm -13 <(caminhos_da_bd) <(caminhos_atuais))
 }
 
-# 5 Erro, resumo e modo de uso
+# Erro, resumo e função principal do modo -v
 verificar_bd_existe() {
     if [ ! -f "$BD" ] || [ ! -r "$BD" ]; then
-        echo "Erro: base de dados '$BD' não encontrada ou sem permissão de leitura." >&2
-        ajuda        # função do Alexandre: modo de uso correto
-        exit 1
+        erro "base de dados '$BD' não encontrada ou sem permissão de leitura."
     fi
 }
 
@@ -158,4 +255,18 @@ modo_verificar() {
     mostrar_resumo
 }
 
-modo_verificar
+main() {
+    processar_argumentos "$@"
+    validar_argumentos
+
+    # Caminho absoluto da BD
+    BD=$(readlink -f "$BD")
+
+    if (( MODO_P )); then
+        proteger
+    else
+        modo_verificar
+    fi
+}
+
+main "$@"
