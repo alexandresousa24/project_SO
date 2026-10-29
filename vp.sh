@@ -1,32 +1,71 @@
 #!/bin/bash
-# Formato da BD:
-# #PASTAS;/pasta1;/pasta2         
-# caminho;dono;grupo;tamanho;permissões;data;SHA-256
+
+erro() {
+    echo "Erro: $1" >&2
+    echo "Uso: ./vp [{-p <dir1> [<dir2>...] | -v}] [-f <ficheiro>] [-e <padrao>] [-s]" >&2
+    echo "  -p : Protege e guarda informação acerca de um ou mais diretórios" >&2
+    echo "  -v : Verifica alterações em ficheiros desde que foram protegidos" >&2
+    echo "  -f : indicação do nome do ficheiro onde a base de dados será guardada" >&2
+    echo "(Por defeito será /tmp/.pdb)" >&2
+    echo "  -e : Permite a exclusão de ficheiros voláteis (ex. *.temp, *.log, /tmp/*) da proteção e verificação" >&2
+    echo "  -s : Emite alertas de alta prioridade para o sistema de logging usando o logger" >&2
+    exit 1
+}
 
 export LC_ALL=C   # garante que o sort e comm têm a mesma ordem
 
-BD="base_real.txt"   # TEMPORÁRIO para testes; no vp final vem do -f
-EXCLUIR=""           # -e
-ALERTAS=0            # -s
-PASTAS=()            # preenchido a partir da BD
+# Recebe o caminho de UM ficheiro em $1 e imprime uma linha com a sua informação
+info_ficheiro() {
+    local ficheiro="$1"
+    local meta hash
 
-TOTAL_VERIFICADOS=0
-TOTAL_MODIFICADOS=0
-TOTAL_APAGADOS=0
-TOTAL_NOVOS=0
+    # 1. Metadados com o stat: dono, grupo, tamanho, permissões (octal), data de modificação
+    meta=$(stat --format="%U;%G;%s;%a;%Y" "$ficheiro")
 
-# Placeholder para testes isolados: a verdadeira `ajuda` é do Alexandre
-ajuda() { echo "Uso: ./vp [-p pasta...] [-v] [-f bd] [-e padrao] [-s]" >&2; }
+    # 2. Hash com o sha256sum: só o hash, sem o nome do ficheiro
+    hash=$(sha256sum "$ficheiro" | cut -d' ' -f1)
 
-# 1 Comparação
-# Escreve uma linha só se o valor antigo for diferente do atual
+    # 3. Imprimir tudo numa linha, com o separador que combinaram no contrato da base de dados
+    echo "$ficheiro;$meta;$hash"
+}
+
+listar_ficheiros() {
+    if [ -n "$exclusao" ]; then
+        find "$1" -type f -not -name "$exclusao"
+    else
+        find "$1" -type f
+    fi
+}
+
+proteger() {
+    rm -f "$bd"
+    n=0
+    lista=$(IFS=';'; echo "${pastas[*]}")
+    echo "#PASTAS;$lista" > "$bd"
+    echo "#EXCLUIR;$exclusao" >> "$bd"
+    for pasta in "${pastas[@]}"; do
+        if [ ! -d "$pasta" ]; then
+            erro "A pasta $pasta não existe"
+        fi
+
+        echo "a proteger a pasta: $pasta"
+
+        while IFS= read -r f; do
+            info_ficheiro "$f"
+            n=$((n+1))
+        done < <(listar_ficheiros "$pasta") >> "$bd"
+    done
+    chmod 444 "$bd"
+    echo "Base de dados de proteção $bd criada com sucesso."
+    echo "Ficheiros processados: $n | Diretórios protegidas: $lista"
+}
+
 comparar_campo() {
     if [ "$2" != "$3" ]; then
         echo "  $1: $2 -> $3"
     fi
 }
 
-# Recebe 6 valores antigos e 6 atuais, pela mesma ordem e escreve só o que mudou.
 comparar_ficheiro() {
     comparar_campo "Dono"                "$1" "$7"
     comparar_campo "Grupo"               "$2" "$8"
@@ -38,18 +77,14 @@ comparar_ficheiro() {
     fi
 }
 
-# 2 Alertas
-# Mostra o alerta no ecrã e, com -s, também no registo do sistema
 alertar() {
     echo "$1"
-    [ -n "$2" ] && echo "$2"          # $2 = detalhes (só no ecrã)
-    if [ "$ALERTAS" -eq 1 ]; then
+    [ -n "$2" ] && echo "$2"
+    if (( modo_s )); then
         logger -p user.crit -t vp "$1"
     fi
 }
 
-# 3 Apagados e Modificados
-# Preenche as variáveis atual_* com os valores do ficheiro no disco
 obter_estado_atual() {
     atual_dono=$(stat -c '%U' "$1")
     atual_grupo=$(stat -c '%G' "$1")
@@ -59,25 +94,23 @@ obter_estado_atual() {
     atual_sha=$(sha256sum < "$1" | cut -d' ' -f1)
 }
 
-# Verdadeiro se o nome do ficheiro for igual ao do -e
 esta_excluido() {
-    [ -n "$EXCLUIR" ] && [[ "$(basename "$1")" == $EXCLUIR ]]
+    [ -n "$exclusao" ] && [[ "$(basename "$1")" == $exclusao ]]
 }
 
-# Verificação de existentes
 verificar_existentes() {
     local caminho dono grupo tamanho perm data sha detalhes
     while IFS=";" read -r caminho dono grupo tamanho perm data sha; do
-        [[ "$caminho" =~ ^# ]] && continue              # ignora linhas começadas com #
-        [ -z "$caminho" ] && continue                   # ignora linhas vazias
-        esta_excluido "$caminho" && continue            # ignora ficheiros que batem com o padrão de exclusão
+        [[ "$caminho" =~ ^# ]] && continue
+        [ -z "$caminho" ] && continue
+        esta_excluido "$caminho" && continue
 
-        TOTAL_VERIFICADOS=$((TOTAL_VERIFICADOS + 1))    
+        total_verificados=$((total_verificados + 1))
 
-        if [ ! -f "$caminho" ]; then                    
+        if [ ! -f "$caminho" ]; then
             alertar "APAGADO: $caminho"
-            TOTAL_APAGADOS=$((TOTAL_APAGADOS + 1))
-            continue 
+            total_apagados=$((total_apagados + 1))
+            continue
         fi
 
         obter_estado_atual "$caminho"
@@ -85,69 +118,52 @@ verificar_existentes() {
                    "$atual_dono" "$atual_grupo" "$atual_tam" "$atual_perm" "$atual_data" "$atual_sha")
         if [ -n "$detalhes" ]; then
             alertar "MODIFICADO: $caminho" "$detalhes"
-            TOTAL_MODIFICADOS=$((TOTAL_MODIFICADOS + 1))
+            total_modificados=$((total_modificados + 1))
         fi
-    done < "$BD"
+    done < "$bd"
 }
 
-# 4 Novos
-# Lê o cabeçalho da BD e preenche a variável PASTAS com as pastas protegidas.
 ler_cabecalho_bd() {
     local campos
     while IFS=";" read -r -a campos; do
         case "${campos[0]}" in
-            "#PASTAS")  PASTAS=("${campos[@]:1}") ;;
-            "#EXCLUIR") [ -z "$EXCLUIR" ] && EXCLUIR="${campos[1]}" ;;
+            "#PASTAS")  pastas=(${campos[@]:1}) ;;
+            "#EXCLUIR") [ -z "$exclusao" ] && exclusao="${campos[1]}" ;;
         esac
-    done < "$BD"
-    if [ "${#PASTAS[@]}" -eq 0 ]; then
-        echo "Erro: a base de dados '$BD' não tem pastas protegidas (linha #PASTAS;...)." >&2
-        ajuda
-        exit 1
+    done < "$bd"
+    if [ "${#pastas[@]}" -eq 0 ]; then
+        erro "a base de dados '$bd' não tem pastas protegidas (linha #PASTAS;...)."
     fi
 }
 
-# ----------------------------------- Deve ser a MESMA função que o -p do Alexandre usa
-listar_ficheiros() {
-    if [ -n "$EXCLUIR" ]; then
-        find "$1" -type f -not -name "$EXCLUIR"
-    else
-        find "$1" -type f
-    fi
-}
-
-# Uma lista para o que está na BD e outra para o que existe agora no disco
 caminhos_da_bd() {
-    grep -v -e '^#' -e '^$' "$BD" | cut -d';' -f1 | sort
+    grep -v -e '^#' -e '^$' "$bd" | cut -d';' -f1 | sort
 }
+
 caminhos_atuais() {
     local pasta
-    for pasta in "${PASTAS[@]}"; do
+    for pasta in "${pastas[@]}"; do
         listar_ficheiros "$pasta"
     done | sort
 }
 
-# Verifica se existem ficheiros novos que não estão na BD e alerta para eles.
 verificar_novos() {
     local caminho
     while IFS= read -r caminho; do
         alertar "NOVO: $caminho"
-        TOTAL_NOVOS=$((TOTAL_NOVOS + 1))
+        total_novos=$((total_novos + 1))
     done < <(comm -13 <(caminhos_da_bd) <(caminhos_atuais))
 }
 
-# 5 Erro, resumo e modo de uso
 verificar_bd_existe() {
-    if [ ! -f "$BD" ] || [ ! -r "$BD" ]; then
-        echo "Erro: base de dados '$BD' não encontrada ou sem permissão de leitura." >&2
-        ajuda        # função do Alexandre: modo de uso correto
-        exit 1
+    if [ ! -f "$bd" ] || [ ! -r "$bd" ]; then
+        erro "base de dados '$bd' não encontrada ou sem permissão de leitura."
     fi
 }
 
 mostrar_resumo() {
     echo "-------------------------------------------------"
-    echo "Verificados: $TOTAL_VERIFICADOS | Modificados: $TOTAL_MODIFICADOS | Apagados: $TOTAL_APAGADOS | Novos: $TOTAL_NOVOS"
+    echo "Verificados: $total_verificados | Modificados: $total_modificados | Apagados: $total_apagados | Novos: $total_novos"
 }
 
 modo_verificar() {
@@ -158,4 +174,54 @@ modo_verificar() {
     mostrar_resumo
 }
 
-modo_verificar
+modo_p=0
+modo_v=0
+modo_s=0
+bd="/tmp/.pdb"
+exclusao=""
+pastas=()
+total_verificados=0
+total_modificados=0
+total_apagados=0
+total_novos=0
+
+while (( $# > 0 )); do
+    OPTIND=1
+    while getopts ":pve:f:s" flag; do
+        case "${flag}" in
+            p) modo_p=1 ;;
+            v) modo_v=1 ;;
+            e) exclusao="$OPTARG" ;;
+            f) bd="$OPTARG" ;;
+            s) modo_s=1 ;;
+            :) erro "A opção -$OPTARG precisa de argumento" ;;
+            \?) erro "Opção Inválida: a flag -$OPTARG não existe" ;;
+        esac
+    done
+    shift $((OPTIND - 1))
+
+    if (( $# > 0 )); then
+        pastas+=("$1")
+        shift
+    fi
+done
+
+if (( modo_p && modo_v )); then
+    erro "As opções -p e -v não podem ser usadas em simultâneo"
+fi
+
+if (( modo_p && ${#pastas[@]} == 0 )); then
+    erro "A opção -p precisa de pelo menos uma pasta"
+fi
+
+if (( !modo_p && ${#pastas[@]} > 0 )); then
+    erro "Foram indicadas pastas sem a opção -p"
+fi
+
+if (( modo_p )); then
+    proteger
+fi
+
+if (( modo_v )); then
+    modo_verificar
+fi
