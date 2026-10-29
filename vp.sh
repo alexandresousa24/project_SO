@@ -4,7 +4,8 @@ erro() {
     echo "Uso: ./vp [{-p <dir1> [<dir2>...] | -v}] [-f <ficheiro>] [-e <padrao>] [-s]" >&2
     echo "  -p : Protege e guarda informação acerca de um ou mais diretórios" >&2
     echo "  -v : Verifica alterações em ficheiros desde que foram protegidos" >&2
-    echo "  -f : indicação do nome do ficheiro onde a base de dados será guardada \n (Por defeito será temp/.pdb)" >&2
+    echo "  -f : indicação do nome do ficheiro onde a base de dados será guardada" >&2 
+    echo "(Por defeito será /tmp/.pdb)" >&2
     echo "  -e : Permite a exclusão de ficheiros voláteis (ex. *.temp, *.log, /tmp/*) da proteção e verificação" >&2
     echo "  -s : Emite alertas de alta prioridade para o sistema de logging usando o logger" >&2
     exit 1
@@ -25,10 +26,37 @@ info_ficheiro() {
     echo "$ficheiro;$meta;$hash"
 }
 
+listar_ficheiros() {
+    find "$1" -type f -not -name "$2"
+}   
+
+proteger() {
+    rm -f "$bd"
+    n=0
+    lista=$(IFS=';'; echo "${pastas[*]}")
+    echo "#PASTAS;$lista" > "$bd"
+    echo "#EXCLUIR;$exclusao" >> "$bd"
+    for pasta in "${pastas[@]}"; do
+        if [ ! -d "$pasta" ]; then
+        erro "A pasta $pasta não existe"
+        fi
+
+        echo "a proteger a pasta: $pasta"
+
+        while IFS= read -r f; do
+            info_ficheiro "$f"
+            n=$((n+1))
+            done < <(listar_ficheiros "$pasta" "$exclusao") >> "$bd"
+    done
+    chmod 444 "$bd"
+    echo "Base de dados de proteção $bd criada com sucesso."
+    echo "Ficheiros processados: $n | Diretórios protegidas: $lista"
+}
+
 modo_p=0
 modo_v=0
 modo_s=0
-ficheiro="/tmp/.pdb"
+bd="/tmp/.pdb"
 exclusao=""
 pastas=()
 while (( $# > 0 )); do
@@ -72,3 +100,6 @@ for pasta in "${pastas[@]}"; do
     echo "  $pasta"
 done
 
+if ((modo_p));
+then proteger;
+fi
