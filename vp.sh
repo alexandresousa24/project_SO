@@ -86,7 +86,6 @@ info_ficheiro() {
 
     meta=$(stat --format="%U;%G;%s;%a;%Y" "$ficheiro")
 
-    # sem permissão de leitura não há hash (fica vazio; o aviso é dado por quem chama)
     hash=""
     [ -r "$ficheiro" ] && hash=$(sha256sum < "$ficheiro" | cut -d' ' -f1)
 
@@ -94,9 +93,8 @@ info_ficheiro() {
 }
 
 # Lista os ficheiros de uma pasta e subpastas
-# (os erros do find são silenciados: as pastas ilegíveis são avisadas por avisar_pastas_ilegiveis)
 listar_ficheiros() {
-    [ -d "$1" ] || return                # pasta apagada: não há ficheiros
+    [ -d "$1" ] || return   # pasta apagada: não há ficheiros
     if [ -n "$EXCLUIR" ]; then
         find "$1" -type f ! -path "$BD" ! \( -name "$EXCLUIR" -o -path "$EXCLUIR" \) 2>/dev/null
     else
@@ -169,7 +167,6 @@ comparar_campo() {
     fi
 }
 
-# escreve só o que mudou.
 comparar_ficheiro() {
     comparar_campo "Dono"                "$1" "$7"
     comparar_campo "Grupo"               "$2" "$8"
